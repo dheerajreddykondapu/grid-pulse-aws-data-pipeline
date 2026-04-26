@@ -1,0 +1,76 @@
+{
+  "Comment": "Grid Pulse AWS pipeline orchestration",
+  "StartAt": "ArchiveCurrentData",
+  "States": {
+    "ArchiveCurrentData": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "grid-pulse-archive-current",
+        "Payload": {}
+      },
+      "Next": "RunIngestionLambda"
+    },
+    "RunIngestionLambda": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "gridiron-pulse-nfl-ingest",
+        "Payload": {}
+      },
+      "Next": "RunRawCrawler"
+    },
+    "RunRawCrawler": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
+      "Parameters": {
+        "Name": "grid-pulse-crawler"
+      },
+      "Next": "WaitForRawCrawler"
+    },
+    "WaitForRawCrawler": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "CheckRawCrawler"
+    },
+    "CheckRawCrawler": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:glue:getCrawler",
+      "Parameters": {
+        "Name": "grid-pulse-crawler"
+      },
+      "Next": "RawCrawlerReady?"
+    },
+    "RawCrawlerReady?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.Crawler.State",
+          "StringEquals": "READY",
+          "Next": "RunGlueETL"
+        }
+      ],
+      "Default": "WaitForRawCrawler"
+    },
+    "RunGlueETL": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "grid-pulse-etl"
+      },
+      "Next": "RunAthenaRepair"
+    },
+    "RunAthenaRepair": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "grid-pulse-athena-repair",
+        "Payload": {}
+      },
+      "Next": "Success"
+    },
+    "Success": {
+      "Type": "Succeed"
+    }
+  }
+}
